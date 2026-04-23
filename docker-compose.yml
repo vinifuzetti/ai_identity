@@ -27,6 +27,17 @@ services:
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
     pid: "host"
 
+  agent-workload:
+    build:
+      context: .
+      dockerfile: docker/workload.Dockerfile
+    container_name: agent-workload
+    environment:
+      - SPIRE_AGENT_SOCKET=/opt/spire/sockets/agent.sock
+      - SVID_AUDIENCE=empresa.com
+    volumes:
+      - spire-sockets:/opt/spire/sockets
+
 volumes:
   spire-server-data:
   spire-agent-data:

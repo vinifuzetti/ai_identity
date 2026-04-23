@@ -1,4 +1,4 @@
-.PHONY: up down logs register validate clean
+.PHONY: up down logs register validate run-workload clean
 
 COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 
@@ -20,6 +20,9 @@ validate:
 	  /opt/spire/bin/spire-agent api fetch jwt \
 	    -audience empresa.com \
 	    -socketPath /opt/spire/sockets/agent.sock
+
+run-workload:
+	$(COMPOSE) run --rm agent-workload
 
 clean:
 	$(COMPOSE) down -v --remove-orphans

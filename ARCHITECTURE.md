@@ -105,27 +105,37 @@ client_assertion=<mesmo SVID JWT, usado para autenticar o cliente OAuth>
 
 ## Estrutura de projeto sugerida
 
+O Authorization Server é um módulo Go separado dentro do monorepo — tem roadmap próprio
+(introspection, revogação, PKCE, device flow) e pode ser extraído para repositório independente
+sem refatoração.
+
 ```
-spiffe-token-exchange-poc/
+ai_identity/
 ├── cmd/
-│   ├── token-exchange-as/   # Authorization Server
-│   ├── agent-workload/      # simulador do agente
+│   ├── agent-workload/      # simulador do agente de IA
 │   └── mcp-server/          # MCP Server com validação de token
 ├── internal/
 │   ├── spiffe/              # helpers go-spiffe
-│   ├── tokenexchange/       # lógica RFC 8693
 │   ├── jwks/                # cache de JWKS
 │   └── policy/              # políticas de delegação
+├── auth-server/             # módulo Go independente (go.mod próprio)
+│   ├── cmd/server/          # entrypoint do Authorization Server
+│   └── internal/
+│       ├── tokenexchange/   # lógica RFC 8693
+│       ├── jwks/            # cache de JWKS
+│       └── policy/          # políticas de delegação
 ├── config/
-│   ├── spire-server.conf
-│   ├── spire-agent.conf
-│   └── registration-entries.sh
+│   ├── server/server.conf
+│   └── agent/agent.conf
+├── docker/
+├── scripts/
 ├── test/
 │   ├── e2e/                 # testes de fluxo completo
 │   └── fixtures/            # JWTs de teste
 ├── docker-compose.yml
 ├── Makefile
-└── README.md
+├── go.mod                   # módulo principal (agent-workload + mcp-server)
+└── ARCHITECTURE.md
 ```
 
 ## Referências
