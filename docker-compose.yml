@@ -1,0 +1,33 @@
+services:
+  spire-server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    container_name: spire-server
+    hostname: spire-server
+    volumes:
+      - ./config/server:/opt/spire/conf/server:ro
+      - ./scripts/server-entrypoint.sh:/entrypoint.sh:ro
+      - spire-server-data:/opt/spire/data/server
+      - spire-sockets:/opt/spire/sockets
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+
+  spire-agent:
+    build:
+      context: .
+      dockerfile: docker/agent.Dockerfile
+    container_name: spire-agent
+    environment:
+      - JOIN_TOKEN
+    volumes:
+      - ./config/agent:/opt/spire/conf/agent:ro
+      - ./scripts/agent-entrypoint.sh:/entrypoint.sh:ro
+      - spire-agent-data:/opt/spire/data/agent
+      - spire-sockets:/opt/spire/sockets
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    pid: "host"
+
+volumes:
+  spire-server-data:
+  spire-agent-data:
+  spire-sockets:
