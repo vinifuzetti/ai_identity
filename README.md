@@ -4,14 +4,34 @@ Prova de conceito de IAM para agentes de IA em ambiente corporativo, baseada no 
 
 Demonstra como um agente de IA pode acessar ferramentas expostas por um MCP Server com **identidade verificável** e **delegação preservada** — sem API keys estáticas, sem tokens de longa duração.
 
-## Cenário
+## Arquitetura (Tasks 1–3 implementadas)
 
+```mermaid
+flowchart LR
+    subgraph idp["Mock IdP (PoC)"]
+        GJ["gen-client-jwt\nEC P-256 signing"]
+    end
+
+    subgraph spire["SPIRE Infrastructure"]
+        SS["SPIRE Server\nCA · SQLite\nspiffe://empresa.com"]
+        SA["SPIRE Agent\nWorkload API\nagent.sock"]
+        SS -->|"bootstrap +\nSVID issuance"| SA
+    end
+
+    subgraph workloads["Workloads"]
+        AW["agent-workload\nspiffe://empresa.com/\nagente/assistente-v2"]
+        AS["auth-server  :8080\nRFC 8693 · RFC 7523"]
+    end
+
+    GJ -->|"subject_token\nclient JWT"| AS
+    AW -->|"FetchJWTSVID\nunix socket"| SA
+    SA -->|"JWT SVID\nES256 · TTL 1h"| AW
+    AW -->|"POST /token\nsubject_token\nactor_token\nclient_assertion"| AS
+    AS -->|"FetchJWTBundles\nunix socket"| SA
+    AS -->|"composite token\nsub + act.sub\naud · scope · jti · TTL 5min"| AW
 ```
-Cliente (JWT)  →  Agente de IA  →  Authorization Server  →  MCP Server
-                      ↑
-                 SPIRE Agent
-                 (JWT SVID)
-```
+
+## Cenário
 
 O cliente autenticado envia seu JWT ao agente. O agente possui uma identidade SPIFFE emitida pelo SPIRE e executa um **OAuth 2.0 Token Exchange** (RFC 8693) no Authorization Server, que produz um token composto carregando tanto o contexto do usuário quanto a identidade do agente.
 
@@ -53,7 +73,7 @@ make run-workload
 |---|---|---|
 | 1 | SPIRE Server + Agent via docker-compose, validar emissão de SVID | ✅ |
 | 2 | `agent-workload` em Go busca SVID via Workload API | ✅ |
-| 3 | Authorization Server com endpoint `/token` (RFC 8693) | 🔲 |
+| 3 | Authorization Server com endpoint `/token` (RFC 8693) | ✅ |
 | 4 | MCP Server com validação de token composto | 🔲 |
 | 5 | Fluxo end-to-end com teste automatizado | 🔲 |
 | 6 | mTLS entre agente e MCP Server (X.509-SVID) | 🔲 |
