@@ -7,29 +7,38 @@ Demonstra como um agente de IA pode acessar ferramentas expostas por um MCP Serv
 ## Arquitetura (Tasks 1–3 implementadas)
 
 ```mermaid
-flowchart LR
+flowchart TD
+    subgraph central["Infraestrutura Central"]
+        SS["SPIRE Server\nCA · SQLite · spiffe://empresa.com\n(prod: Postgres + HSM + k8s_psat/aws_iid)"]
+    end
+
+    subgraph agentInfra["Infraestrutura do Agente de IA"]
+        SA["SPIRE Agent\nWorkload API · agent.sock\n(prod: DaemonSet / daemon por VM)"]
+        AW["agent-workload\nspiffe://empresa.com/agente/assistente-v2"]
+        SA -->|"JWT SVID · ES256 · TTL 1h"| AW
+    end
+
+    subgraph authInfra["Infraestrutura do Auth Server"]
+        SA2["SPIRE Agent\nWorkload API · agent.sock"]
+        AS["auth-server · :8080\nRFC 8693 · RFC 7523"]
+    end
+
     subgraph idp["Mock IdP (PoC)"]
         GJ["gen-client-jwt\nEC P-256 signing"]
     end
 
-    subgraph spire["SPIRE Infrastructure"]
-        SS["SPIRE Server\nCA · SQLite\nspiffe://empresa.com"]
-        SA["SPIRE Agent\nWorkload API\nagent.sock"]
-        SS -->|"bootstrap +\nSVID issuance"| SA
-    end
-
-    subgraph workloads["Workloads"]
-        AW["agent-workload\nspiffe://empresa.com/\nagente/assistente-v2"]
-        AS["auth-server  :8080\nRFC 8693 · RFC 7523"]
-    end
+    SS -->|"gRPC mTLS\nbootstrap + SVID issuance"| SA
+    SS -->|"gRPC mTLS\nbootstrap + SVID issuance"| SA2
 
     GJ -->|"subject_token\nclient JWT"| AS
     AW -->|"FetchJWTSVID\nunix socket"| SA
-    SA -->|"JWT SVID\nES256 · TTL 1h"| AW
-    AW -->|"POST /token\nsubject_token\nactor_token\nclient_assertion"| AS
-    AS -->|"FetchJWTBundles\nunix socket"| SA
-    AS -->|"composite token\nsub + act.sub\naud · scope · jti · TTL 5min"| AW
+    AW -->|"POST /token\nsubject_token · actor_token\nclient_assertion"| AS
+    AS -->|"FetchJWTBundles\nunix socket"| SA2
+    AS -->|"composite token\nsub + act.sub · aud · scope · jti · TTL 5min"| AW
 ```
+
+> **PoC vs Produção:** na PoC, `agent-workload` e `auth-server` compartilham o mesmo SPIRE Agent via volume Docker.
+> Em produção, cada nó/pod tem seu próprio Agent co-localizado, todos conectados ao SPIRE Server central.
 
 ## Cenário
 
