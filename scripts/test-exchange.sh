@@ -13,7 +13,12 @@ SVID=$(docker exec spire-agent \
   /opt/spire/bin/spire-agent api fetch jwt \
     -audience empresa.com \
     -socketPath /opt/spire/sockets/agent.sock \
-  | grep -A1 "^token(" | tail -1 | tr -d '\t ')
+  2>/dev/null | grep -A1 "^token(" | tail -1 | tr -d '\t ')
+
+if [ -z "$SVID" ]; then
+  echo "ERRO: SVID vazio. Execute 'make register' antes de testar."
+  exit 1
+fi
 echo "SVID: ${SVID:0:60}..."
 
 echo ""

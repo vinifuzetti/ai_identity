@@ -65,10 +65,15 @@ func (b *BundleFile) GetJWTBundleForTrustDomain(td spiffeid.TrustDomain) (*jwtbu
 		return nil, fmt.Errorf("falha ao parsear JWKS: %w", err)
 	}
 
+	// O bundle SPIFFE inclui chaves X.509 (use: "x509-svid") e JWT (use: "jwt-svid").
+	// Para validação de SVIDs JWT, filtramos apenas as chaves jwt-svid.
 	bundle := jwtbundle.New(b.trustDomain)
 	for _, key := range jwks.Keys {
+		if key.Use != "jwt-svid" {
+			continue
+		}
 		if err := bundle.AddJWTAuthority(key.KeyID, key.Public()); err != nil {
-			return nil, fmt.Errorf("falha ao adicionar chave %s: %w", key.KeyID, err)
+			return nil, fmt.Errorf("falha ao adicionar chave JWT %s: %w", key.KeyID, err)
 		}
 	}
 

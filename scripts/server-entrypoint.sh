@@ -17,7 +17,7 @@ done
 mkdir -p "$BUNDLE_DIR"
 while true; do
   /opt/spire/bin/spire-server bundle show \
-    -format jwks \
+    -format spiffe \
     -socketPath "$SOCKET" \
     > "$BUNDLE_DIR/jwks.json.tmp" 2>/dev/null && \
   mv "$BUNDLE_DIR/jwks.json.tmp" "$BUNDLE_DIR/jwks.json"

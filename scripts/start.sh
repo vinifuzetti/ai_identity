@@ -31,6 +31,12 @@ echo "==> Token gerado: $TOKEN"
 echo "==> Subindo SPIRE Agent..."
 JOIN_TOKEN=$TOKEN $COMPOSE up -d spire-agent
 
+echo "==> Aguardando bundle JWT do SPIRE Server..."
+until docker exec spire-server test -f /opt/spire/bundle/jwks.json 2>/dev/null; do
+  sleep 1
+done
+echo "==> Bundle disponível."
+
 echo "==> Subindo Authorization Server..."
 $COMPOSE up -d auth-server
 
