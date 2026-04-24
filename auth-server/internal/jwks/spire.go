@@ -1,56 +1,78 @@
 package jwks
 
 import (
-	"context"
+	"encoding/json"
+	"fmt"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
-	"github.com/spiffe/go-spiffe/v2/workloadapi"
+	"github.com/spiffe/go-spiffe/v2/spiffeid"
 )
 
-// SPIRECache busca e armazena em cache o bundle JWT do SPIRE via Workload API.
-// O bundle é informação pública — não requer registro de workload no SPIRE Agent.
-type SPIRECache struct {
-	mu         sync.RWMutex
-	bundles    *jwtbundle.Set
-	lastUpdate time.Time
-	socketPath string
-	ttl        time.Duration
+// BundleFile implementa jwtbundle.Source lendo o JWKS de um arquivo exportado
+// periodicamente pelo SPIRE Server via `spire-server bundle show -format jwks`.
+//
+// Elimina a necessidade de um SPIRE Agent co-localizado no Auth Server:
+// o bundle é informação pública — apenas as chaves de verificação do trust domain.
+type BundleFile struct {
+	mu          sync.RWMutex
+	bundle      *jwtbundle.Bundle
+	lastUpdate  time.Time
+	path        string
+	trustDomain spiffeid.TrustDomain
+	ttl         time.Duration
 }
 
-func NewSPIRECache(socketPath string) *SPIRECache {
-	return &SPIRECache{
-		socketPath: socketPath,
-		ttl:        5 * time.Minute,
+func NewBundleFile(path, trustDomain string) (*BundleFile, error) {
+	td, err := spiffeid.TrustDomainFromString(trustDomain)
+	if err != nil {
+		return nil, fmt.Errorf("trust domain inválido: %w", err)
 	}
+	return &BundleFile{
+		path:        path,
+		trustDomain: td,
+		ttl:         60 * time.Second,
+	}, nil
 }
 
-// GetBundles retorna o bundle JWT do trust domain, usando cache com TTL.
-func (c *SPIRECache) GetBundles(ctx context.Context) (*jwtbundle.Set, error) {
-	c.mu.RLock()
-	if c.bundles != nil && time.Since(c.lastUpdate) < c.ttl {
-		b := c.bundles
-		c.mu.RUnlock()
-		return b, nil
+// GetJWTBundleForTrustDomain implementa jwtbundle.Source — usado por jwtsvid.ParseAndValidate.
+func (b *BundleFile) GetJWTBundleForTrustDomain(td spiffeid.TrustDomain) (*jwtbundle.Bundle, error) {
+	if td != b.trustDomain {
+		return nil, fmt.Errorf("trust domain desconhecido: %s", td)
 	}
-	c.mu.RUnlock()
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	b.mu.RLock()
+	if b.bundle != nil && time.Since(b.lastUpdate) < b.ttl {
+		bundle := b.bundle
+		b.mu.RUnlock()
+		return bundle, nil
+	}
+	b.mu.RUnlock()
 
-	client, err := workloadapi.New(ctx, workloadapi.WithAddr("unix://"+c.socketPath))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	data, err := os.ReadFile(b.path)
 	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
-
-	bundles, err := client.FetchJWTBundles(ctx)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("falha ao ler bundle JWKS (%s): %w", b.path, err)
 	}
 
-	c.bundles = bundles
-	c.lastUpdate = time.Now()
-	return bundles, nil
+	var jwks jose.JSONWebKeySet
+	if err := json.Unmarshal(data, &jwks); err != nil {
+		return nil, fmt.Errorf("falha ao parsear JWKS: %w", err)
+	}
+
+	bundle := jwtbundle.New(b.trustDomain)
+	for _, key := range jwks.Keys {
+		if err := bundle.AddJWTAuthority(key.KeyID, key.Public()); err != nil {
+			return nil, fmt.Errorf("falha ao adicionar chave %s: %w", key.KeyID, err)
+		}
+	}
+
+	b.bundle = bundle
+	b.lastUpdate = time.Now()
+	return bundle, nil
 }

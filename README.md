@@ -19,7 +19,6 @@ flowchart TD
     end
 
     subgraph authInfra["Infraestrutura do Auth Server"]
-        SA2["SPIRE Agent\nWorkload API · agent.sock"]
         AS["auth-server · :8080\nRFC 8693 · RFC 7523"]
     end
 
@@ -28,17 +27,16 @@ flowchart TD
     end
 
     SS -->|"gRPC mTLS\nbootstrap + SVID issuance"| SA
-    SS -->|"gRPC mTLS\nbootstrap + SVID issuance"| SA2
+    SS -->|"bundle show -format jwks\n(volume compartilhado · refresh 60s)"| AS
 
     GJ -->|"subject_token\nclient JWT"| AS
     AW -->|"FetchJWTSVID\nunix socket"| SA
     AW -->|"POST /token\nsubject_token · actor_token\nclient_assertion"| AS
-    AS -->|"FetchJWTBundles\nunix socket"| SA2
     AS -->|"composite token\nsub + act.sub · aud · scope · jti · TTL 5min"| AW
 ```
 
-> **PoC vs Produção:** na PoC, `agent-workload` e `auth-server` compartilham o mesmo SPIRE Agent via volume Docker.
-> Em produção, cada nó/pod tem seu próprio Agent co-localizado, todos conectados ao SPIRE Server central.
+> O Auth Server não precisa de SPIRE Agent próprio: o bundle JWT é informação pública
+> (chaves de verificação do trust domain) e é exportado diretamente pelo SPIRE Server.
 
 ## Cenário
 

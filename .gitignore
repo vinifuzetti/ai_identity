@@ -1,1 +1,3 @@
 .claude/
+config/idp-private.pem
+config/idp-public.pem

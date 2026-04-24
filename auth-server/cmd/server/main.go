@@ -15,7 +15,8 @@ import (
 )
 
 func main() {
-	socketPath := env("SPIRE_AGENT_SOCKET", "/opt/spire/sockets/agent.sock")
+	bundlePath := env("SPIRE_BUNDLE_PATH", "/opt/spire/bundle/jwks.json")
+	trustDomain := env("TRUST_DOMAIN", "empresa.com")
 	idpKeyPath := env("IDP_PUBLIC_KEY", "/config/idp-public.pem")
 	addr := env("ADDR", ":8080")
 
@@ -29,9 +30,13 @@ func main() {
 		log.Fatalf("falha ao gerar chave de assinatura: %v", err)
 	}
 
-	spireCache := jwks.NewSPIRECache(socketPath)
+	bundleSource, err := jwks.NewBundleFile(bundlePath, trustDomain)
+	if err != nil {
+		log.Fatalf("falha ao inicializar bundle source: %v", err)
+	}
+
 	pol := policy.New()
-	handler := tokenexchange.NewHandler(idpKey, signingKey, spireCache, pol)
+	handler := tokenexchange.NewHandler(idpKey, signingKey, bundleSource, pol)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /token", handler.ServeHTTP)

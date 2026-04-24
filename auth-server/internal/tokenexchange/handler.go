@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/vinifuzetti/ai_identity/auth-server/internal/jwks"
 	"github.com/vinifuzetti/ai_identity/auth-server/internal/policy"
@@ -48,14 +49,14 @@ type errorResponse struct {
 
 // Handler implementa o endpoint POST /token (RFC 8693 — OAuth 2.0 Token Exchange).
 type Handler struct {
-	idpKey     *ecdsa.PublicKey
-	signingKey *jwks.SigningKey
-	spire      *jwks.SPIRECache
-	policy     *policy.Policy
+	idpKey       *ecdsa.PublicKey
+	signingKey   *jwks.SigningKey
+	bundleSource jwtbundle.Source
+	policy       *policy.Policy
 }
 
-func NewHandler(idpKey *ecdsa.PublicKey, sk *jwks.SigningKey, spire *jwks.SPIRECache, pol *policy.Policy) *Handler {
-	return &Handler{idpKey: idpKey, signingKey: sk, spire: spire, policy: pol}
+func NewHandler(idpKey *ecdsa.PublicKey, sk *jwks.SigningKey, bundleSource jwtbundle.Source, pol *policy.Policy) *Handler {
+	return &Handler{idpKey: idpKey, signingKey: sk, bundleSource: bundleSource, policy: pol}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -139,13 +140,9 @@ func (h *Handler) ServeJWKS(w http.ResponseWriter, r *http.Request) {
 	h.signingKey.ServeJWKS(w, r)
 }
 
-// validateSVID valida um JWT SVID contra o bundle do SPIRE Agent.
-func (h *Handler) validateSVID(ctx context.Context, token string) (*jwtsvid.SVID, error) {
-	bundles, err := h.spire.GetBundles(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("falha ao buscar bundle SPIRE: %w", err)
-	}
-	return jwtsvid.ParseAndValidate(token, bundles, []string{svidAudience})
+// validateSVID valida um JWT SVID contra o bundle JWKS exportado pelo SPIRE Server.
+func (h *Handler) validateSVID(_ context.Context, token string) (*jwtsvid.SVID, error) {
+	return jwtsvid.ParseAndValidate(token, h.bundleSource, []string{svidAudience})
 }
 
 // validateSubjectToken valida o JWT do usuário contra a chave pública do IdP.

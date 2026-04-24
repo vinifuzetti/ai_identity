@@ -10,6 +10,7 @@ services:
       - ./scripts/server-entrypoint.sh:/entrypoint.sh:ro
       - spire-server-data:/opt/spire/data/server
       - spire-sockets:/opt/spire/sockets
+      - spire-bundle:/opt/spire/bundle
     entrypoint: ["/bin/sh", "/entrypoint.sh"]
 
   spire-agent:
@@ -44,10 +45,11 @@ services:
       dockerfile: docker/auth-server.Dockerfile
     container_name: auth-server
     environment:
-      - SPIRE_AGENT_SOCKET=/opt/spire/sockets/agent.sock
+      - SPIRE_BUNDLE_PATH=/opt/spire/bundle/jwks.json
+      - TRUST_DOMAIN=empresa.com
       - IDP_PUBLIC_KEY=/config/idp-public.pem
     volumes:
-      - spire-sockets:/opt/spire/sockets
+      - spire-bundle:/opt/spire/bundle:ro
       - ./config:/config:ro
     ports:
       - "8080:8080"
@@ -56,3 +58,4 @@ volumes:
   spire-server-data:
   spire-agent-data:
   spire-sockets:
+  spire-bundle:
