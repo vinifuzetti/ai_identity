@@ -38,6 +38,20 @@ services:
     volumes:
       - spire-sockets:/opt/spire/sockets
 
+  auth-server:
+    build:
+      context: .
+      dockerfile: docker/auth-server.Dockerfile
+    container_name: auth-server
+    environment:
+      - SPIRE_AGENT_SOCKET=/opt/spire/sockets/agent.sock
+      - IDP_PUBLIC_KEY=/config/idp-public.pem
+    volumes:
+      - spire-sockets:/opt/spire/sockets
+      - ./config:/config:ro
+    ports:
+      - "8080:8080"
+
 volumes:
   spire-server-data:
   spire-agent-data:

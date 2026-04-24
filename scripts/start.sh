@@ -31,4 +31,7 @@ echo "==> Token gerado: $TOKEN"
 echo "==> Subindo SPIRE Agent..."
 JOIN_TOKEN=$TOKEN $COMPOSE up -d spire-agent
 
-echo "==> Ambiente SPIRE pronto. Use 'make logs' para acompanhar."
+echo "==> Subindo Authorization Server..."
+$COMPOSE up -d auth-server
+
+echo "==> Ambiente pronto. Use 'make logs' para acompanhar."
