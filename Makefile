@@ -1,4 +1,4 @@
-.PHONY: up down logs register validate run-workload gen-idp-keys gen-idp-keys-force test-exchange clean
+.PHONY: up down logs register validate run-workload gen-idp-keys gen-idp-keys-force test-exchange test-mcp clean
 
 COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 
@@ -33,6 +33,9 @@ gen-idp-keys-force:
 
 test-exchange:
 	bash scripts/test-exchange.sh
+
+test-mcp:
+	bash scripts/test-mcp.sh
 
 clean:
 	$(COMPOSE) down -v --remove-orphans

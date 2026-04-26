@@ -40,4 +40,13 @@ echo "==> Bundle disponível."
 echo "==> Subindo Authorization Server..."
 $COMPOSE up -d auth-server
 
+echo "==> Aguardando Authorization Server ficar pronto..."
+until curl -sf http://localhost:8080/keys > /dev/null 2>&1; do
+  sleep 2
+done
+echo "==> Auth Server pronto."
+
+echo "==> Subindo MCP Server..."
+$COMPOSE up -d mcp-server
+
 echo "==> Ambiente pronto. Use 'make logs' para acompanhar."

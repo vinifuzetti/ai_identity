@@ -54,6 +54,20 @@ services:
     ports:
       - "8080:8080"
 
+  mcp-server:
+    build:
+      context: .
+      dockerfile: docker/mcp-server.Dockerfile
+    container_name: mcp-server
+    environment:
+      - JWKS_URL=http://auth-server:8080/keys
+      - EXPECTED_AUD=https://mcp-server.internal/api
+      - ADDR=:8081
+    ports:
+      - "8081:8081"
+    depends_on:
+      - auth-server
+
 volumes:
   spire-server-data:
   spire-agent-data:
