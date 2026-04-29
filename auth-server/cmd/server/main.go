@@ -5,16 +5,19 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
+	"github.com/vinifuzetti/ai_identity/auth-server/internal/audit"
 	"github.com/vinifuzetti/ai_identity/auth-server/internal/jwks"
 	"github.com/vinifuzetti/ai_identity/auth-server/internal/policy"
 	"github.com/vinifuzetti/ai_identity/auth-server/internal/tokenexchange"
 )
 
 func main() {
+	audit.Init("auth-server")
+
 	bundlePath := env("SPIRE_BUNDLE_PATH", "/opt/spire/bundle/jwks.json")
 	trustDomain := env("TRUST_DOMAIN", "empresa.com")
 	idpKeyPath := env("IDP_PUBLIC_KEY", "/config/idp-public.pem")
@@ -22,17 +25,20 @@ func main() {
 
 	idpKey, err := loadECPublicKey(idpKeyPath)
 	if err != nil {
-		log.Fatalf("falha ao carregar chave pública do IdP (%s): %v", idpKeyPath, err)
+		slog.Error("falha ao carregar chave pública do IdP", "path", idpKeyPath, "error", err)
+		os.Exit(1)
 	}
 
 	signingKey, err := jwks.NewSigningKey()
 	if err != nil {
-		log.Fatalf("falha ao gerar chave de assinatura: %v", err)
+		slog.Error("falha ao gerar chave de assinatura", "error", err)
+		os.Exit(1)
 	}
 
 	bundleSource, err := jwks.NewBundleFile(bundlePath, trustDomain)
 	if err != nil {
-		log.Fatalf("falha ao inicializar bundle source: %v", err)
+		slog.Error("falha ao inicializar bundle source", "error", err)
+		os.Exit(1)
 	}
 
 	pol := policy.New()
@@ -42,8 +48,11 @@ func main() {
 	mux.HandleFunc("POST /token", handler.ServeHTTP)
 	mux.HandleFunc("GET /keys", handler.ServeJWKS)
 
-	log.Printf("Authorization Server iniciando em %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	slog.Info("Authorization Server iniciando", "addr", addr)
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		slog.Error("servidor encerrado", "error", err)
+		os.Exit(1)
+	}
 }
 
 func loadECPublicKey(path string) (*ecdsa.PublicKey, error) {

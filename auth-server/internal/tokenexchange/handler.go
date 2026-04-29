@@ -13,6 +13,7 @@ import (
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/spiffe/go-spiffe/v2/bundle/jwtbundle"
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
+	"github.com/vinifuzetti/ai_identity/auth-server/internal/audit"
 	"github.com/vinifuzetti/ai_identity/auth-server/internal/jwks"
 	"github.com/vinifuzetti/ai_identity/auth-server/internal/policy"
 )
@@ -60,12 +61,16 @@ func NewHandler(idpKey *ecdsa.PublicKey, sk *jwks.SigningKey, bundleSource jwtbu
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ip := r.RemoteAddr
+
 	if err := r.ParseForm(); err != nil {
+		audit.TokenExchangeDenied("parse_error", ip, err)
 		writeError(w, http.StatusBadRequest, "invalid_request", "falha ao parsear body")
 		return
 	}
 
 	if r.FormValue("grant_type") != grantTypeTokenExchange {
+		audit.TokenExchangeDenied("unsupported_grant_type", ip, nil)
 		writeError(w, http.StatusBadRequest, "unsupported_grant_type", "")
 		return
 	}
@@ -77,6 +82,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	scope := r.FormValue("scope")
 
 	if subjectToken == "" || actorToken == "" || clientAssertion == "" {
+		audit.TokenExchangeDenied("missing_required_params", ip, nil)
 		writeError(w, http.StatusBadRequest, "invalid_request", "subject_token, actor_token e client_assertion são obrigatórios")
 		return
 	}
@@ -89,6 +95,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Autenticar cliente OAuth via JWT Bearer Assertion — RFC 7523
 	agentSVID, err := h.validateSVID(ctx, clientAssertion)
 	if err != nil {
+		audit.TokenExchangeDenied("invalid_client_assertion", ip, err)
 		writeError(w, http.StatusUnauthorized, "invalid_client", "client_assertion inválido: "+err.Error())
 		return
 	}
@@ -96,6 +103,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 2. Validar subject_token — JWT do usuário emitido pelo IdP corporativo
 	userSubject, err := h.validateSubjectToken(subjectToken)
 	if err != nil {
+		audit.TokenExchangeDenied("invalid_subject_token", ip, err)
 		writeError(w, http.StatusBadRequest, "invalid_request", "subject_token inválido: "+err.Error())
 		return
 	}
@@ -103,28 +111,34 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 3. Validar actor_token — SVID JWT do agente
 	actorSVID, err := h.validateSVID(ctx, actorToken)
 	if err != nil {
+		audit.TokenExchangeDenied("invalid_actor_token", ip, err)
 		writeError(w, http.StatusBadRequest, "invalid_request", "actor_token inválido: "+err.Error())
 		return
 	}
 
 	// client_assertion e actor_token devem representar a mesma identidade
 	if agentSVID.ID.String() != actorSVID.ID.String() {
+		audit.TokenExchangeDenied("identity_mismatch", ip, nil)
 		writeError(w, http.StatusBadRequest, "invalid_request", "client_assertion e actor_token com identidades diferentes")
 		return
 	}
 
 	// 4. Política de delegação
 	if !h.policy.CanDelegate(agentSVID.ID.String(), userSubject) {
+		audit.TokenExchangeDenied("delegation_denied", ip, nil)
 		writeError(w, http.StatusForbidden, "access_denied", "delegação não permitida pela política")
 		return
 	}
 
 	// 5. Emitir token composto
-	token, err := h.issueCompositeToken(userSubject, agentSVID.ID.String(), resource, scope)
+	token, jti, err := h.issueCompositeToken(userSubject, agentSVID.ID.String(), resource, scope)
 	if err != nil {
+		audit.TokenExchangeError("issue_failed", ip, err)
 		writeError(w, http.StatusInternalServerError, "server_error", "falha ao emitir token composto")
 		return
 	}
+
+	audit.TokenExchangeSuccess(userSubject, agentSVID.ID.String(), jti, resource, scope, ip)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tokenResponse{
@@ -166,15 +180,17 @@ func (h *Handler) validateSubjectToken(token string) (string, error) {
 }
 
 // issueCompositeToken emite o token composto com delegação (act claim — RFC 8693 §4.1).
-func (h *Handler) issueCompositeToken(userSub, agentSPIFFEID, audience, scope string) (string, error) {
+// Retorna o token serializado e o jti para correlação nos audit logs.
+func (h *Handler) issueCompositeToken(userSub, agentSPIFFEID, audience, scope string) (token, jti string, err error) {
 	sig, err := jose.NewSigner(
 		jose.SigningKey{Algorithm: jose.ES256, Key: h.signingKey.Private()},
 		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", h.signingKey.KeyID()),
 	)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
+	jti = generateJTI()
 	now := time.Now()
 	claims := compositeClaims{
 		Claims: jwt.Claims{
@@ -187,10 +203,11 @@ func (h *Handler) issueCompositeToken(userSub, agentSPIFFEID, audience, scope st
 		Scope:    scope,
 		Act:      map[string]string{"sub": agentSPIFFEID},
 		ClientID: agentSPIFFEID,
-		JTI:      generateJTI(),
+		JTI:      jti,
 	}
 
-	return jwt.Signed(sig).Claims(claims).Serialize()
+	token, err = jwt.Signed(sig).Claims(claims).Serialize()
+	return token, jti, err
 }
 
 func generateJTI() string {
