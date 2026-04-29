@@ -4,7 +4,7 @@ Prova de conceito de IAM para agentes de IA em ambiente corporativo, baseada no 
 
 Demonstra como um agente de IA pode acessar ferramentas expostas por um MCP Server com **identidade verificável** e **delegação preservada** — sem API keys estáticas, sem tokens de longa duração.
 
-## Arquitetura (Tasks 1–3 implementadas)
+## Arquitetura
 
 ```mermaid
 flowchart TD
@@ -73,19 +73,6 @@ make validate
 # 4. Buscar SVID programaticamente via Go
 make run-workload
 ```
-
-## Roadmap da PoC
-
-| # | Tarefa | Status |
-|---|---|---|
-| 1 | SPIRE Server + Agent via docker-compose, validar emissão de SVID | ✅ |
-| 2 | `agent-workload` em Go busca SVID via Workload API | ✅ |
-| 3 | Authorization Server com endpoint `/token` (RFC 8693) | ✅ |
-| 4 | MCP Server com validação de token composto | 🔲 |
-| 5 | Fluxo end-to-end com teste automatizado | 🔲 |
-| 6 | mTLS entre agente e MCP Server (X.509-SVID) | 🔲 |
-| 7 | Audit logging estruturado | 🔲 |
-| 8 | Extensão para Kubernetes com `k8s_psat` | 🔲 |
 
 ## Referências
 
