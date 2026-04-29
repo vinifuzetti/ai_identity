@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/vinifuzetti/ai_identity/internal/audit"
 	"github.com/vinifuzetti/ai_identity/internal/mcptoken"
+	ispiffe "github.com/vinifuzetti/ai_identity/internal/spiffe"
 )
 
 // contextKey é o tipo para chaves de context.Value — evita colisão com outros pacotes.
@@ -23,6 +26,8 @@ func main() {
 	jwksURL := env("JWKS_URL", "http://auth-server:8080/keys")
 	expectedAud := env("EXPECTED_AUD", "https://mcp-server.internal/api")
 	addr := env("ADDR", ":8081")
+	mtlsAddr := env("MTLS_ADDR", ":8082")
+	socketPath := env("SPIRE_AGENT_SOCKET", "")
 
 	validator := mcptoken.NewValidator(jwksURL, expectedAud)
 
@@ -30,18 +35,58 @@ func main() {
 	mux.Handle("GET /tools", authMiddleware(validator, handleListTools))
 	mux.Handle("POST /tools/call", authMiddleware(validator, handleCallTool))
 
-	slog.Info("MCP Server iniciando", "addr", addr, "jwks_url", jwksURL)
+	// Inicia listener mTLS se o socket do SPIRE Agent estiver disponível.
+	if socketPath != "" {
+		go startMTLSServer(socketPath, mtlsAddr, mux)
+	}
 
+	slog.Info("MCP Server HTTP iniciando", "addr", addr, "jwks_url", jwksURL)
 	if err := http.ListenAndServe(addr, mux); err != nil {
-		slog.Error("servidor encerrado", "error", err)
+		slog.Error("servidor HTTP encerrado", "error", err)
 		os.Exit(1)
+	}
+}
+
+// startMTLSServer inicia o listener mTLS SPIFFE na porta configurada.
+// Apresenta o SVID X.509 do mcp-server e exige SVID válido do trust domain.
+func startMTLSServer(socketPath, addr string, handler http.Handler) {
+	ctx := context.Background()
+
+	source, err := ispiffe.NewX509Source(ctx, socketPath,
+		"spiffe://empresa.com/mcp/tools-server")
+	if err != nil {
+		slog.Error("falha ao criar X509Source para mTLS", "error", err)
+		return
+	}
+	defer source.Close()
+
+	tlsConfig, err := ispiffe.MTLSServerConfig(source, "empresa.com")
+	if err != nil {
+		slog.Error("falha ao criar mTLS config", "error", err)
+		return
+	}
+
+	ln, err := tls.Listen("tcp", addr, tlsConfig)
+	if err != nil {
+		slog.Error("falha ao iniciar listener mTLS", "addr", addr, "error", err)
+		return
+	}
+
+	svid, _ := source.GetX509SVID()
+	slog.Info("MCP Server mTLS iniciando",
+		"addr", addr,
+		"spiffe_id", svid.ID.String(),
+	)
+
+	if err := http.Serve(ln, handler); err != nil {
+		slog.Error("servidor mTLS encerrado", "error", err)
 	}
 }
 
 // authMiddleware valida o composite token Bearer e injeta as claims no contexto.
 func authMiddleware(v *mcptoken.Validator, next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
+		ip := clientIP(r)
 		tokenStr := bearerToken(r)
 
 		if tokenStr == "" {
@@ -133,6 +178,23 @@ func bearerToken(r *http.Request) string {
 		return strings.TrimSpace(after)
 	}
 	return ""
+}
+
+// clientIP extrai o IP do cliente, preferindo o peer TLS quando disponível.
+func clientIP(r *http.Request) string {
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		// Conexão mTLS: inclui URIs do certificado do peer
+		for _, uri := range r.TLS.PeerCertificates[0].URIs {
+			if strings.HasPrefix(uri.String(), "spiffe://") {
+				return uri.String()
+			}
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func jsonOK(w http.ResponseWriter, v any) {

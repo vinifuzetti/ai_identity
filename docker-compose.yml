@@ -36,6 +36,8 @@ services:
     environment:
       - SPIRE_AGENT_SOCKET=/opt/spire/sockets/agent.sock
       - SVID_AUDIENCE=empresa.com
+      - AUTH_SERVER_URL=http://auth-server:8080
+      - MCP_SERVER_MTLS_URL=https://mcp-server:8082
     volumes:
       - spire-sockets:/opt/spire/sockets
 
@@ -63,8 +65,13 @@ services:
       - JWKS_URL=http://auth-server:8080/keys
       - EXPECTED_AUD=https://mcp-server.internal/api
       - ADDR=:8081
+      - MTLS_ADDR=:8082
+      - SPIRE_AGENT_SOCKET=/opt/spire/sockets/agent.sock
+    volumes:
+      - spire-sockets:/opt/spire/sockets
     ports:
       - "8081:8081"
+      - "8082:8082"
     depends_on:
       - auth-server
 

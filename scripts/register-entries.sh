@@ -1,12 +1,15 @@
 #!/bin/sh
 # Executa após `docker compose up` para registrar os workloads.
-# Idempotente: recria a entry se o parentID (agent) tiver mudado.
+# Idempotente: recria entries se o parentID (agent) tiver mudado.
 # Remove agentes expirados antes de selecionar o agente ativo.
+#
+# Workloads registrados:
+#   spiffe://empresa.com/agente/assistente-v2  → selector unix:uid:0  (agent-workload, root)
+#   spiffe://empresa.com/mcp/tools-server      → selector unix:uid:1000 (mcp-server, mcpserver user)
 
 set -e
 
 SOCKET="-socketPath /opt/spire/sockets/server.sock"
-SPIFFE_ID="spiffe://empresa.com/agente/assistente-v2"
 NOW=$(date -u +%s)
 
 echo "==> Limpando agentes expirados do SPIRE Server..."
@@ -19,7 +22,6 @@ docker exec spire-server \
         -spiffeID "$AGENT" 2>/dev/null \
         | grep "Expiration time" | awk -F': ' '{print $2}' | xargs)
 
-      # Converte "2026-04-24 03:44:36 +0000 UTC" → epoch (apenas data+hora)
       EXPIRY_EPOCH=$(date -u -j -f "%Y-%m-%d %H:%M:%S" \
         "$(echo "$EXPIRY" | awk '{print $1, $2}')" +%s 2>/dev/null || echo 9999999999)
 
@@ -42,31 +44,38 @@ fi
 
 echo "Agent SPIFFE ID: $AGENT_ID"
 
-# Verifica se já existe uma entry para este SPIFFE ID
-EXISTING=$(docker exec spire-server \
-  /opt/spire/bin/spire-server entry show $SOCKET \
-  -spiffeID "$SPIFFE_ID" 2>/dev/null) || true
+# Registra (ou recria) uma entry. Args: $1=spiffeID $2=selector
+register_entry() {
+  ENTRY_SPIFFE_ID="$1"
+  SELECTOR="$2"
 
-if echo "$EXISTING" | grep -q "Entry ID"; then
-  EXISTING_PARENT=$(echo "$EXISTING" | grep "Parent ID" | awk -F': ' '{print $2}' | tr -d ' ')
+  EXISTING=$(docker exec spire-server \
+    /opt/spire/bin/spire-server entry show $SOCKET \
+    -spiffeID "$ENTRY_SPIFFE_ID" 2>/dev/null) || true
 
-  if [ "$EXISTING_PARENT" = "$AGENT_ID" ]; then
-    echo "Entry já existente com parentID correto — nenhuma ação necessária."
-    exit 0
+  if echo "$EXISTING" | grep -q "Entry ID"; then
+    EXISTING_PARENT=$(echo "$EXISTING" | grep "Parent ID" | awk -F': ' '{print $2}' | tr -d ' ')
+    if [ "$EXISTING_PARENT" = "$AGENT_ID" ]; then
+      echo "[$ENTRY_SPIFFE_ID] entry correta — nenhuma ação necessária."
+      return
+    fi
+    ENTRY_ID=$(echo "$EXISTING" | grep "Entry ID" | awk -F': ' '{print $2}' | tr -d ' ')
+    echo "[$ENTRY_SPIFFE_ID] parentID desatualizado — removendo entry antiga (ID: $ENTRY_ID)..."
+    docker exec spire-server \
+      /opt/spire/bin/spire-server entry delete $SOCKET \
+      -entryID "$ENTRY_ID"
   fi
 
-  ENTRY_ID=$(echo "$EXISTING" | grep "Entry ID" | awk -F': ' '{print $2}' | tr -d ' ')
-  echo "parentID desatualizado. Removendo entry antiga (ID: $ENTRY_ID)..."
+  echo "[$ENTRY_SPIFFE_ID] criando entry..."
   docker exec spire-server \
-    /opt/spire/bin/spire-server entry delete $SOCKET \
-    -entryID "$ENTRY_ID"
-fi
+    /opt/spire/bin/spire-server entry create $SOCKET \
+    -spiffeID "$ENTRY_SPIFFE_ID" \
+    -parentID  "$AGENT_ID" \
+    -selector  "$SELECTOR"
+  echo "[$ENTRY_SPIFFE_ID] entry criada."
+}
 
-echo "Criando entry para $SPIFFE_ID..."
-docker exec spire-server \
-  /opt/spire/bin/spire-server entry create $SOCKET \
-  -spiffeID "$SPIFFE_ID" \
-  -parentID  "$AGENT_ID" \
-  -selector  unix:uid:0
+register_entry "spiffe://empresa.com/agente/assistente-v2"  "unix:uid:0"
+register_entry "spiffe://empresa.com/mcp/tools-server"      "unix:uid:1000"
 
-echo "Entry criada com sucesso."
+echo "==> Registro concluído."

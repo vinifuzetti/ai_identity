@@ -24,6 +24,13 @@ validate:
 run-workload:
 	$(COMPOSE) run --rm agent-workload
 
+run-agent:
+	@echo "==> Gerando JWT do cliente..."
+	$(eval CLIENT_JWT=$(shell docker exec auth-server /gen-client-jwt))
+	CLIENT_JWT="$(CLIENT_JWT)" $(COMPOSE) run --rm \
+	  -e CLIENT_JWT="$(CLIENT_JWT)" \
+	  agent-workload
+
 gen-idp-keys:
 	bash scripts/gen-idp-keys.sh
 
