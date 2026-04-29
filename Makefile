@@ -1,4 +1,4 @@
-.PHONY: up down logs register validate run-workload gen-idp-keys gen-idp-keys-force test-exchange test-mcp clean
+.PHONY: up down logs register validate run-workload gen-idp-keys gen-idp-keys-force test-exchange test-mcp test-e2e clean
 
 COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 
@@ -36,6 +36,9 @@ test-exchange:
 
 test-mcp:
 	bash scripts/test-mcp.sh
+
+test-e2e:
+	go test -tags e2e -v -timeout 120s ./test/e2e/...
 
 clean:
 	$(COMPOSE) down -v --remove-orphans
