@@ -28,7 +28,9 @@ fi
 
 echo "==> Token gerado: $TOKEN"
 
-echo "==> Subindo SPIRE Agent..."
+echo "==> Recriando SPIRE Agent (remove dados antigos para evitar bundle stale)..."
+$COMPOSE rm -fsv spire-agent 2>/dev/null || true
+docker volume rm ai_identity_spire-agent-data 2>/dev/null || true
 JOIN_TOKEN=$TOKEN $COMPOSE up -d spire-agent
 
 echo "==> Aguardando bundle JWT do SPIRE Server..."
